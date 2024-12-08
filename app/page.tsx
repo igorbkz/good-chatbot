@@ -7,16 +7,22 @@ import { TypingIndicator } from '@/components/typing-indicator'
 import { ClearChatButton } from '@/components/clear-chat-button'
 import { Sidebar } from '@/components/sidebar'
 
-type MessageRole = 'user' | 'assistant'
+type MessageRole = 'user' | 'assistant' | 'system'
 type Message = {
   role: MessageRole
   content: string
 }
 
+const MAX_HISTORY_LENGTH = 12
+const MAX_MESSAGE_LENGTH = 500
+const SYSTEM_PROMPT = `Você é um assistente de IA único criado pelo Igor, especializado em fornecer respostas claras e objetivas.
+Responda sempre em português brasileiro e seja conciso e direto`
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -25,56 +31,91 @@ export default function Chat() {
 
   useEffect(() => {
     scrollToBottom()
+    if (messages.length > 0) {
+      saveConversationHistory(messages)
+    }
   }, [messages])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const validateMessage = (message: string): boolean => {
+    if (!message.trim()) {
+      setError('A mensagem não pode estar vazia')
+      return false
+    }
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      setError(`A mensagem deve ter no máximo ${MAX_MESSAGE_LENGTH} caracteres`)
+      return false
+    }
+    return true
+  }
+
   const handleSendMessage = async (message: string) => {
+    setError(null)
+    if (!validateMessage(message)) return
+
     const newUserMessage: Message = { 
-      role: 'user' as const, 
+      role: 'user',
       content: message 
     }
-    const updatedMessages = [...messages, newUserMessage]
-    setMessages(updatedMessages)
+    
+    setMessages(prevMessages => [...prevMessages, newUserMessage])
     setIsTyping(true)
     
     try {
-      const response = await queryAPI(message, updatedMessages)
-      setIsTyping(false)
+      const response = await queryAPI(message, messages)
       const newAssistantMessage: Message = { 
-        role: 'assistant' as const, 
+        role: 'assistant',
         content: response 
       }
-      setMessages(messages => [...messages, newAssistantMessage])
-      saveConversationHistory([...updatedMessages, newAssistantMessage])
-    } catch (error: unknown) {
-      console.error('API request failed:', error)
-      setIsTyping(false)
-      const errorMessage: Message = { 
-        role: 'assistant' as const, 
-        content: 'Sorry, an error occurred while processing your request.' 
+      
+      setMessages(prevMessages => {
+        const updatedMessages = [...prevMessages, newAssistantMessage]
+        // Limita o histórico para manter o contexto gerenciável
+        return updatedMessages.slice(-MAX_HISTORY_LENGTH)
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro desconhecido'
+      setError(errorMessage)
+      const errorResponse: Message = { 
+        role: 'assistant',
+        content: `Desculpe, ocorreu um erro: ${errorMessage}. Por favor, tente novamente.`
       }
-      setMessages(messages => [...messages, errorMessage])
-      saveConversationHistory([...updatedMessages, errorMessage])
+      setMessages(prevMessages => [...prevMessages, errorResponse])
+    } finally {
+      setIsTyping(false)
     }
   }
 
   const handleClearChat = () => {
     setMessages([])
+    setError(null)
     localStorage.removeItem('conversationHistory')
   }
 
   const loadConversationHistory = () => {
-    const storedHistory = localStorage.getItem('conversationHistory')
-    if (storedHistory) {
-      setMessages(JSON.parse(storedHistory))
+    try {
+      const storedHistory = localStorage.getItem('conversationHistory')
+      if (storedHistory) {
+        const parsedHistory = JSON.parse(storedHistory)
+        if (Array.isArray(parsedHistory)) {
+          setMessages(parsedHistory)
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar histórico:', error)
+      localStorage.removeItem('conversationHistory')
     }
   }
 
   const saveConversationHistory = (history: Message[]) => {
-    localStorage.setItem('conversationHistory', JSON.stringify(history))
+    try {
+      localStorage.setItem('conversationHistory', JSON.stringify(history))
+    } catch (error) {
+      console.error('Erro ao salvar histórico:', error)
+    }
   }
 
   return (
@@ -96,6 +137,11 @@ export default function Chat() {
             <ChatMessage key={index} role={message.role} content={message.content} />
           ))}
           {isTyping && <TypingIndicator />}
+          {error && (
+            <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
+              {error}
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
         <div className="border-t border-gray-200 p-4">
@@ -110,38 +156,42 @@ export default function Chat() {
 }
 
 async function queryAPI(message: string, history: Message[]) {
-  const API_URL = 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1'
-  const API_KEY = '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'
-
-  const systemPrompt = "Você é um assistente de IA único criado pelo Igor. Responda de forma concisa e direta em português, indo além de respostas comuns. Traga insights, clareza e uma abordagem diferenciada que surpreenda e engaje o usuário."
-  
-  const conversationHistory = `[INST] ${systemPrompt} [/INST] ` + history.map(msg => 
-    `${msg.role === 'user' ? '[INST]' : '[/INST]'} ${msg.content}`
-  ).join(' ') + ` [INST] ${message} [/INST]`
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      inputs: `<s>${conversationHistory}`,
-      parameters: {
-        max_new_tokens: 500,
-        temperature: 0.7,
-        top_p: 0.9,
-        repetition_penalty: 1.2,
-        return_full_text: false
-      }
-    })
-  })
-
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+  if (!process.env.HUGGINGFACE_API_KEY) {
+    throw new Error('Configurações da API não encontradas')
   }
 
-  const data = await response.json()
-  return data[0].generated_text.trim()
+  const { HfInference } = await import('@huggingface/inference')
+  const client = new HfInference(process.env.HUGGINGFACE_API_KEY)
+
+  const formattedMessages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...history.slice(-MAX_HISTORY_LENGTH),
+    { role: 'user', content: message }
+  ]
+
+  try {
+    let response = ''
+    const stream = await client.chatCompletionStream({
+      model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+      messages: formattedMessages,
+      max_tokens: 500,
+      temperature: 0.7,
+      repetition_penalty: 1.2
+    })
+
+    for await (const chunk of stream) {
+      if (chunk.choices && chunk.choices.length > 0) {
+        const newContent = chunk.choices[0].delta.content
+        if (newContent) {
+          response += newContent
+        }
+      }
+    }
+
+    return response.trim()
+  } catch (error) {
+    console.error('Erro na chamada da API:', error)
+    throw new Error('Erro ao processar resposta da API')
+  }
 }
 
