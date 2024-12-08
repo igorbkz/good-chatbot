@@ -133,9 +133,11 @@ export default function Chat() {
           </button>
         </header>
         <div className="flex-grow overflow-auto p-4 space-y-4" id="messages">
-          {messages.map((message, index) => (
-            <ChatMessage key={index} role={message.role} content={message.content} />
-          ))}
+          {messages
+            .filter(message => message.role !== 'system')
+            .map((message, index) => (
+              <ChatMessage key={index} role={message.role} content={message.content} />
+            ))}
           {isTyping && <TypingIndicator />}
           {error && (
             <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
