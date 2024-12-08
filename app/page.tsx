@@ -7,8 +7,14 @@ import { TypingIndicator } from '@/components/typing-indicator'
 import { ClearChatButton } from '@/components/clear-chat-button'
 import { Sidebar } from '@/components/sidebar'
 
+type MessageRole = 'user' | 'assistant'
+type Message = {
+  role: MessageRole
+  content: string
+}
+
 export default function Chat() {
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -31,7 +37,10 @@ export default function Chat() {
   }
 
   const handleSendMessage = async (message: string) => {
-    const newUserMessage = { role: 'user', content: message }
+    const newUserMessage: Message = { 
+      role: 'user' as const, 
+      content: message 
+    }
     const updatedMessages = [...messages, newUserMessage]
     setMessages(updatedMessages)
     setIsTyping(true)
@@ -39,13 +48,20 @@ export default function Chat() {
     try {
       const response = await queryAPI(message, updatedMessages)
       setIsTyping(false)
-      const newAssistantMessage = { role: 'assistant', content: response }
-      setMessages([...updatedMessages, newAssistantMessage])
+      const newAssistantMessage: Message = { 
+        role: 'assistant' as const, 
+        content: response 
+      }
+      setMessages(messages => [...messages, newAssistantMessage])
       saveConversationHistory([...updatedMessages, newAssistantMessage])
-    } catch (error) {
+    } catch (error: unknown) {
+      console.error('API request failed:', error)
       setIsTyping(false)
-      const errorMessage = { role: 'assistant', content: 'Sorry, an error occurred while processing your request.' }
-      setMessages([...updatedMessages, errorMessage])
+      const errorMessage: Message = { 
+        role: 'assistant' as const, 
+        content: 'Sorry, an error occurred while processing your request.' 
+      }
+      setMessages(messages => [...messages, errorMessage])
       saveConversationHistory([...updatedMessages, errorMessage])
     }
   }
@@ -62,7 +78,7 @@ export default function Chat() {
     }
   }
 
-  const saveConversationHistory = (history: Array<{ role: 'user' | 'assistant', content: string }>) => {
+  const saveConversationHistory = (history: Message[]) => {
     localStorage.setItem('conversationHistory', JSON.stringify(history))
   }
 
@@ -98,7 +114,7 @@ export default function Chat() {
   )
 }
 
-async function queryAPI(message: string, history: Array<{ role: 'user' | 'assistant', content: string }>) {
+async function queryAPI(message: string, history: Message[]) {
   const API_URL = 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1'
   const API_KEY = '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'
 
