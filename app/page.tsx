@@ -113,7 +113,7 @@ async function queryAPI(message: string, history: Message[]) {
   const API_URL = 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1'
   const API_KEY = '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'
 
-  const systemPrompt = "Você é Hendrix, um assistente de IA único criado pelo bkz. Responda em português com criatividade e profundidade, indo além das respostas comuns dos chatbots. Traga insights, clareza e uma abordagem diferenciada que surpreenda e engaje o usuário."
+  const systemPrompt = "Você é um assistente de IA único criado pelo Igor. Responda em português com criatividade, indo além de respostas comuns. Traga insights, clareza e uma abordagem diferenciada que surpreenda e engaje o usuário."
   
   const conversationHistory = `[INST] ${systemPrompt} [/INST] ` + history.map(msg => 
     `${msg.role === 'user' ? '[INST]' : '[/INST]'} ${msg.content}`
