@@ -17,16 +17,14 @@ const MAX_HISTORY_LENGTH = 12
 const MAX_MESSAGE_LENGTH = 500
 const SYSTEM_PROMPT = `Você é um assistente de IA especializado em fornecer respostas claras, objetivas e consistentes.
 Mantenha sempre o contexto da conversa e evite contradições.
-Responda sempre em português brasileiro de forma concisa e direta.
-Se não souber a resposta, diga claramente que não sabe.
-Evite respostas vagas ou ambíguas.
-Mantenha um tom profissional e amigável.`
+Responda sempre em português brasileiro de forma concisa e direta.`
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [currentResponse, setCurrentResponse] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -35,16 +33,17 @@ export default function Chat() {
 
   useEffect(() => {
     scrollToBottom()
-    if (messages.length > 0) {
-      saveConversationHistory(messages)
-    }
-  }, [messages])
+  }, [messages, currentResponse])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   const validateMessage = (message: string): boolean => {
+    if (isTyping) {
+      setError('Aguarde a resposta anterior ser concluída')
+      return false
+    }
     if (!message.trim()) {
       setError('A mensagem não pode estar vazia')
       return false
@@ -67,18 +66,20 @@ export default function Chat() {
     
     setMessages(prevMessages => [...prevMessages, newUserMessage])
     setIsTyping(true)
+    setCurrentResponse('')
     
     try {
-      const response = await queryAPI(message, messages)
+      const finalResponse = await streamResponse(message, messages)
+      
       const newAssistantMessage: Message = { 
         role: 'assistant',
-        content: response 
+        content: finalResponse 
       }
       
       setMessages(prevMessages => {
-        const updatedMessages = [...prevMessages, newAssistantMessage]
-        // Limita o histórico para manter o contexto gerenciável
-        return updatedMessages.slice(-MAX_HISTORY_LENGTH)
+        const updatedMessages = [...prevMessages, newAssistantMessage].slice(-MAX_HISTORY_LENGTH)
+        saveConversationHistory(updatedMessages)
+        return updatedMessages
       })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro desconhecido'
@@ -87,9 +88,62 @@ export default function Chat() {
         role: 'assistant',
         content: `Desculpe, ocorreu um erro: ${errorMessage}. Por favor, tente novamente.`
       }
-      setMessages(prevMessages => [...prevMessages, errorResponse])
+      setMessages(prevMessages => {
+        const updatedMessages = [...prevMessages, errorResponse]
+        saveConversationHistory(updatedMessages)
+        return updatedMessages
+      })
     } finally {
       setIsTyping(false)
+      setCurrentResponse('')
+    }
+  }
+
+  const streamResponse = async (message: string, history: Message[]): Promise<string> => {
+    if (!process.env.HUGGINGFACE_API_KEY) {
+      throw new Error('Configurações da API não encontradas')
+    }
+
+    const { HfInference } = await import('@huggingface/inference')
+    const client = new HfInference(process.env.HUGGINGFACE_API_KEY)
+
+    const formattedMessages = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      ...history.map(msg => {
+        if (msg.role === 'user') {
+          return { role: 'user', content: `[INST] ${msg.content} [/INST]` }
+        }
+        return msg
+      }),
+      { role: 'user', content: `[INST] ${message} [/INST]` }
+    ]
+
+    let fullResponse = ''
+    try {
+      const stream = await client.chatCompletionStream({
+        model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+        messages: formattedMessages,
+        max_tokens: 500,
+        temperature: 0.3,
+        top_p: 0.9,
+        repetition_penalty: 1.1,
+        do_sample: true
+      })
+
+      for await (const chunk of stream) {
+        if (chunk.choices && chunk.choices.length > 0) {
+          const newContent = chunk.choices[0].delta.content
+          if (newContent) {
+            fullResponse += newContent
+            setCurrentResponse(fullResponse)
+          }
+        }
+      }
+
+      return fullResponse.trim()
+    } catch (error) {
+      console.error('Erro na chamada da API:', error)
+      throw new Error('Erro ao processar resposta da API')
     }
   }
 
@@ -144,7 +198,13 @@ export default function Chat() {
             .map((message, index) => (
               <ChatMessage key={index} role={message.role} content={message.content} />
             ))}
-          {isTyping && <TypingIndicator />}
+          {isTyping && (
+            <div className="message bg-gray-100 text-gray-900 self-start p-4 rounded-lg max-w-[80%]">
+              <div className="prose prose-sm">
+                {currentResponse || <TypingIndicator />}
+              </div>
+            </div>
+          )}
           {error && (
             <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
               {error}
@@ -153,7 +213,7 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
         <div className="border-t border-gray-200 p-4">
-          <ChatInput onSendMessage={handleSendMessage} />
+          <ChatInput onSendMessage={handleSendMessage} disabled={isTyping} />
           <div className="mt-2 flex justify-center">
             <ClearChatButton onClearChat={handleClearChat} />
           </div>
@@ -161,54 +221,5 @@ export default function Chat() {
       </div>
     </div>
   )
-}
-
-async function queryAPI(message: string, history: Message[]) {
-  if (!process.env.HUGGINGFACE_API_KEY) {
-    throw new Error('Configurações da API não encontradas')
-  }
-
-  const { HfInference } = await import('@huggingface/inference')
-  const client = new HfInference(process.env.HUGGINGFACE_API_KEY)
-
-  // Format messages according to Mixtral's instruction format
-  const formattedMessages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...history.slice(-MAX_HISTORY_LENGTH).map(msg => {
-      // Ensure each message follows the instruction format
-      if (msg.role === 'user') {
-        return { role: 'user', content: `[INST] ${msg.content} [/INST]` }
-      }
-      return msg
-    }),
-    { role: 'user', content: `[INST] ${message} [/INST]` }
-  ]
-
-  try {
-    let response = ''
-    const stream = await client.chatCompletionStream({
-      model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
-      messages: formattedMessages,
-      max_tokens: 500,
-      temperature: 0.3, // Reduced temperature for more focused responses
-      top_p: 0.9, // Added top_p for better response coherence
-      repetition_penalty: 1.1, // Reduced repetition penalty
-      do_sample: true
-    })
-
-    for await (const chunk of stream) {
-      if (chunk.choices && chunk.choices.length > 0) {
-        const newContent = chunk.choices[0].delta.content
-        if (newContent) {
-          response += newContent
-        }
-      }
-    }
-
-    return response.trim()
-  } catch (error) {
-    console.error('Erro na chamada da API:', error)
-    throw new Error('Erro ao processar resposta da API')
-  }
 }
 
