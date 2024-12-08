@@ -15,9 +15,8 @@ type Message = {
 
 const MAX_HISTORY_LENGTH = 12
 const MAX_MESSAGE_LENGTH = 500
-const SYSTEM_PROMPT = `Você é um assistente de IA especializado em fornecer respostas claras, objetivas e consistentes.
-Mantenha sempre o contexto da conversa e evite contradições.
-Responda sempre em português brasileiro de forma concisa e direta.`
+const SYSTEM_PROMPT = `Você é Hendrix, um assistente de IA criado pelo Igor no Brasil.
+Sua função é responder perguntas de usuários de forma clara e objetiva.`
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -123,10 +122,10 @@ export default function Chat() {
       const stream = await client.chatCompletionStream({
         model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
         messages: formattedMessages,
-        max_tokens: 500,
-        temperature: 0.3,
+        max_tokens: 700,
+        temperature: 0.6,
         top_p: 0.9,
-        repetition_penalty: 1.1,
+        repetition_penalty: 1.2,
         do_sample: true
       })
 
