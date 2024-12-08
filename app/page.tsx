@@ -134,7 +134,9 @@ export default function Chat() {
         </header>
         <div className="flex-grow overflow-auto p-4 space-y-4" id="messages">
           {messages
-            .filter(message => message.role !== 'system')
+            .filter((message): message is Message & { role: 'user' | 'assistant' } => 
+              message.role === 'user' || message.role === 'assistant'
+            )
             .map((message, index) => (
               <ChatMessage key={index} role={message.role} content={message.content} />
             ))}
