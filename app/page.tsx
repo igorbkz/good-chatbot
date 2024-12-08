@@ -31,7 +31,7 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  const addMessage = (content: string, role: 'user' | 'assistant') => {
+  const _addMessage = (content: string, role: 'user' | 'assistant') => {
     setMessages(prevMessages => [...prevMessages, { role, content }])
     saveConversationHistory([...messages, { role, content }])
   }
