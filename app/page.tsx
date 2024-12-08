@@ -39,6 +39,7 @@ export default function Chat() {
       setIsTyping(false)
       addMessage(response, 'assistant')
     } catch (error) {
+      console.error('API request failed:', error)
       setIsTyping(false)
       addMessage('Sorry, an error occurred while processing your request.', 'assistant')
     }
