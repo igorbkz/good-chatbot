@@ -15,8 +15,12 @@ type Message = {
 
 const MAX_HISTORY_LENGTH = 12
 const MAX_MESSAGE_LENGTH = 500
-const SYSTEM_PROMPT = `Você é um assistente de IA único criado pelo Igor, especializado em fornecer respostas claras e objetivas.
-Responda sempre em português brasileiro e seja conciso e direto`
+const SYSTEM_PROMPT = `Você é um assistente de IA especializado em fornecer respostas claras, objetivas e consistentes.
+Mantenha sempre o contexto da conversa e evite contradições.
+Responda sempre em português brasileiro de forma concisa e direta.
+Se não souber a resposta, diga claramente que não sabe.
+Evite respostas vagas ou ambíguas.
+Mantenha um tom profissional e amigável.`
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -167,10 +171,17 @@ async function queryAPI(message: string, history: Message[]) {
   const { HfInference } = await import('@huggingface/inference')
   const client = new HfInference(process.env.HUGGINGFACE_API_KEY)
 
+  // Format messages according to Mixtral's instruction format
   const formattedMessages = [
     { role: 'system', content: SYSTEM_PROMPT },
-    ...history.slice(-MAX_HISTORY_LENGTH),
-    { role: 'user', content: message }
+    ...history.slice(-MAX_HISTORY_LENGTH).map(msg => {
+      // Ensure each message follows the instruction format
+      if (msg.role === 'user') {
+        return { role: 'user', content: `[INST] ${msg.content} [/INST]` }
+      }
+      return msg
+    }),
+    { role: 'user', content: `[INST] ${message} [/INST]` }
   ]
 
   try {
@@ -179,8 +190,10 @@ async function queryAPI(message: string, history: Message[]) {
       model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
       messages: formattedMessages,
       max_tokens: 500,
-      temperature: 0.7,
-      repetition_penalty: 1.2
+      temperature: 0.3, // Reduced temperature for more focused responses
+      top_p: 0.9, // Added top_p for better response coherence
+      repetition_penalty: 1.1, // Reduced repetition penalty
+      do_sample: true
     })
 
     for await (const chunk of stream) {
