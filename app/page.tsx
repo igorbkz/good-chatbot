@@ -31,17 +31,22 @@ export default function Chat() {
   }
 
   const handleSendMessage = async (message: string) => {
-    addMessage(message, 'user')
+    const newUserMessage = { role: 'user', content: message }
+    const updatedMessages = [...messages, newUserMessage]
+    setMessages(updatedMessages)
     setIsTyping(true)
     
     try {
-      const response = await queryAPI(message)
+      const response = await queryAPI(message, updatedMessages)
       setIsTyping(false)
-      addMessage(response, 'assistant')
+      const newAssistantMessage = { role: 'assistant', content: response }
+      setMessages([...updatedMessages, newAssistantMessage])
+      saveConversationHistory([...updatedMessages, newAssistantMessage])
     } catch (error) {
-      console.error('API request failed:', error)
       setIsTyping(false)
-      addMessage('Sorry, an error occurred while processing your request.', 'assistant')
+      const errorMessage = { role: 'assistant', content: 'Sorry, an error occurred while processing your request.' }
+      setMessages([...updatedMessages, errorMessage])
+      saveConversationHistory([...updatedMessages, errorMessage])
     }
   }
 
@@ -93,9 +98,13 @@ export default function Chat() {
   )
 }
 
-async function queryAPI(message: string) {
+async function queryAPI(message: string, history: Array<{ role: 'user' | 'assistant', content: string }>) {
   const API_URL = 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1'
   const API_KEY = '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'
+
+  const conversationHistory = history.map(msg => 
+    `${msg.role === 'user' ? '[INST]' : '[/INST]'} ${msg.content}`
+  ).join(' ') + ` [INST] ${message} [/INST]`
 
   const response = await fetch(API_URL, {
     method: 'POST',
@@ -104,7 +113,7 @@ async function queryAPI(message: string) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      inputs: `<s>[INST] ${message} [/INST]`,
+      inputs: `<s>${conversationHistory}`,
       parameters: {
         max_new_tokens: 500,
         temperature: 0.7,
